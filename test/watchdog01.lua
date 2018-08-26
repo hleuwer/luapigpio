@@ -1,7 +1,7 @@
-local gpio = require "lgpio"
+local gpio = require "pigpio"
 local util = require "test.test_util"
 
-intro_1()
+print(gpio.info())
 
 local pinp, pout = 20, 21
 
@@ -9,9 +9,13 @@ gpio.initialise()
 
 gpio.setMode(pinp, gpio.INPUT)
 gpio.setMode(pout, gpio.OUTPUT)
+
 local last_tick = 0
 local x = 1
 
+---
+-- Alert callback
+---
 local function alert(pin, level, tick)
    printf(string.format("Alert callback: %d, gpio=%d, ok=%s, level=%d, tick=%d us, delta=%.3f us",
                         x, pin, tostring(pin==pinp), level, tick, tick - last_tick))
@@ -23,11 +27,9 @@ local function alert(pin, level, tick)
    end
 end
 
-
-
 gpio.setAlertFunc(pinp, alert)
 
-local tout = getNumber("Timeout [ms]: ", 500)
+local tout = util.getNumber("Timeout [ms]: ", 500)
 
 print("Config Watchdog ...")
 local rc = gpio.setWatchdog(pinp, tout)
@@ -35,8 +37,9 @@ local rc = gpio.setWatchdog(pinp, tout)
 print("Write level 1 ...")
 gpio.write(pout, 1)
 last_tick = gpio.tick()
+
 print("Capture Watchdog timeouts for 5 seconds ...")
-gpio.delay(5*1e6)
+gpio.wait(5)
 
 print("cleanup ...")
 gpio.setMode(pout, gpio.INPUT)

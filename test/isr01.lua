@@ -60,11 +60,11 @@ for i = 1, N/2 do
       c2 = c1 + 10
       c3 = c2 + 5
    end
-   print("  set 1 now")
+--   print("  set 1 now")
    gpio.write(pout, 1)
    gpio.delay(ton * math.random(800,1200))
 
-   print("  set 0 now")
+--   print("  set 0 now")
    gpio.write(pout, 0)
    gpio.delay(toff * math.random(800,1200))
 end

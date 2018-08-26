@@ -1,35 +1,38 @@
-local gpio = require "lgpio"
+local gpio = require "pigpio"
 local util = require "test.test_util"
 
-intro_1()
-
+print(gpio.info())
 local pinp, pout = 20, 21
 
 gpio.initialise()
 
+gpio.setPullUpDown(pinp, gpio.PUD_UP)
 gpio.setMode(pinp, gpio.INPUT)
 gpio.setMode(pout, gpio.OUTPUT)
+
 local last_tick = 0
-local x = 1
+local count = 1
 
+---
+-- Alert function.
+---
 local function alert(gpio, level, tick)
-   print(string.format("Alert callback: x=%d, gpio=%d, ok=%s, level=%d, tick=%d us delta]=%.3f us",
-                       x, gpio, tostring(gpio==pinp), level, tick, tick - last_tick))
+   print(string.format("Alert callback: count=%d, gpio=%d, ok=%s, level=%d, tick=%d us delta]=%.3f ms",
+                       count, gpio, tostring(gpio==pinp), level, tick, (tick - last_tick)/1000))
    last_tick = tick
-   x = x + 1
+   count = count + 1
 end
-
-
 
 gpio.setAlertFunc(pinp, alert)
 
-local N = getNumber("Number of triggers: ", 10)
-local ton = getNumber("Pulse length [us]: ", 100)
+local N = util.getNumber("Number of triggers: ", 10)
+local ton = util.getNumber("Pulse length [us]: ", 100)
+
 last_tick = gpio.tick()
-for i = 1, N do 
+for i = 1, N do
+   print("Trigger ...")
    gpio.trigger(pout, ton, 1)
-   gpio.delay(1e6/5)
-   ton = ton - 10
+   gpio.busyWait(1)
 end
 
 print("cleanup ...")

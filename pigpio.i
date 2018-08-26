@@ -1,4 +1,4 @@
-%module lgpio
+%module core
 %{
 #include <stdio.h>
 #include "pigpio.h"
