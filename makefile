@@ -1,13 +1,14 @@
 WRAPPER=pigpio_wrap.c
 EOBJS=../pigpio.o ../command.o
 WOBJS=$(WRAPPER:.c=.o) pigpio_util.o
-OBJS = $(EOBJS) $(WOBJS)
+#OBJS = $(EOBJS) $(WOBJS)
+OBJS = $(WOBJS)
 CFLAGS= -O2 -c -fpic
 LDFLAGS= -shared
-LIBS=-lpthread
+LIBS=-lpigpio -lpthread
 LUAV=5.2
 INC=-I/usr/include/lua$(LUAV) -I..
-LIBDIR=-L/usr/local/lib
+LIBDIR=-L/usr/local/lib 
 IFILE=pigpio.i
 TARGET=core.so
 LUALIBDIR=/usr/local/lib/lua/$(LUAV)
@@ -18,7 +19,7 @@ LUALIBDIR=/usr/local/lib/lua/$(LUAV)
 	gcc $(CFLAGS) $(INC) -o $@ $<
 
 $(TARGET): $(OBJS)
-	gcc $(LDFLAGS) $(LIBDIR) $(LIBS) -o $(TARGET) $(OBJS)
+	gcc $(LDFLAGS) $(OBJS) $(LIBDIR) $(LIBS) -o $(TARGET)
 
 $(WRAPPER:.c=.o): $(WRAPPER)
 

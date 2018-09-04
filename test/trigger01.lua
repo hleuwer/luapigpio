@@ -2,6 +2,7 @@ local gpio = require "pigpio"
 local util = require "test.test_util"
 
 print(gpio.info())
+
 local pinp, pout = 20, 21
 
 gpio.initialise()
@@ -23,18 +24,20 @@ local function alert(gpio, level, tick)
    count = count + 1
 end
 
-gpio.setAlertFunc(pinp, alert)
 
-local N = util.getNumber("Number of triggers: ", 10)
+local N = util.getNumber("Number of triggers: ", 5)
 local ton = util.getNumber("Pulse length [us]: ", 100)
+gpio.setAlertFunc(pinp, alert)
 
 last_tick = gpio.tick()
 for i = 1, N do
    print("Trigger ...")
    gpio.trigger(pout, ton, 1)
-   gpio.busyWait(1)
+   gpio.wait(1)
+--   gpio.busyWait(1)
 end
-
+print("wait a second ...")
+gpio.wait(1)
 print("cleanup ...")
 gpio.setMode(pout, gpio.INPUT)
 gpio.terminate()

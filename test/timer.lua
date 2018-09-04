@@ -1,11 +1,10 @@
 local gpio = require "pigpio"
 local util = require "test.test_util"
 
-
 local show = tonumber(os.getenv("show")) or 1
 local dT = tonumber(os.getenv("dT")) or 100
-local N = tonumber(os.getenv("N")) or 5
-local T = tonumber(os.getenv("T")) or 5
+local N = tonumber(os.getenv("N")) or 1
+local T = tonumber(os.getenv("T")) or 2
 
 local min = 60*1e6
 local counter = 0
@@ -21,12 +20,12 @@ assert(N <= 10, "max. 10 timers supported!")
 assert(dT >= 10, "min. interval of 10 ms violated!")
 
 -- Init pigpio - mandatory
-gpio.initialise()
+--gpio.initialise()
 
 ---
 -- One common timeout function used for all timers
 ---
-local function timeout(index)
+local function timeout(index, tick)
    local now = gpio.tick()
    local deltaT = now - (last_timeouts[index] or 0)
    last_timeouts[index] = now
@@ -34,8 +33,8 @@ local function timeout(index)
    tcount[index] = (tcount[index] or 0) + 1
    if show == 1 then
       -- show timer expiration info - long
-      printf("Timer %2d expired: count=%4d dT=%7.3f ms terr=%7.3f ms garbage:%.1f kB (%d)",
-             index, tcount[index], deltaT/1000,  terror[index]/1000/tcount[index], collectgarbage("count"))
+      printf("Timer %2d expired: count=%4d (%4d us) dT=%7.3f ms terr=%7.3f ms garbage:%.1f kB (%d)",
+             index, tcount[index], now-tick, deltaT/1000,  terror[index]/1000/tcount[index], collectgarbage("count"))
    elseif show == 2 then
       -- show timer expirattin as index in a row
       io.stdout:write(index.." ") io.stdout:flush()

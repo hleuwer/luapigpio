@@ -19,7 +19,7 @@ local function alert(pin, level, tick)
    local delta = tick - last_tick
    last_tick = tick
    local inbits = gpio.read_Bits_0_31()
-   print(string.format("alert cb %3d at %d (%4d): gpio=%d (ok=%s), level=%d (%08x), tick=%d us, delta=%.3f ms gc=%.1f (%d)",
+   print(string.format("alert cb %3d at %d (%4d us): gpio=%d (ok=%s), level=%d (%08x), tick=%d us, delta=%.3f ms gc=%.1f (%d)",
                        x, _tick, _tick-tick, pin, tostring(pin==pinp), level, inbits, tick, delta/1000,
                        collectgarbage("count")))
    x = x + 1

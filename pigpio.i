@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include "pigpio.h"
 #include "pigpio_util.h"
-  
 %}
 %include <stdint.i>
 // Global renaming - remove 'gpio' prefix because we have a namespace
@@ -26,4 +25,4 @@
 }
 
 // Headers to parse
-%include ../pigpio.h 
+%include /usr/local/include/pigpio.h 
