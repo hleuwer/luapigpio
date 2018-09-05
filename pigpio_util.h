@@ -11,6 +11,7 @@
 #define MAX_ALERTS (32)
 #define MAX_TIMERS (10)
 #define MAX_ISRGPIO (54)
+#define MAX_SIGNALS (64)
 
 
 #define OFFS_TIMERS (MAX_ALERTS)
@@ -36,10 +37,16 @@ struct timfuncEx {
 };
 typedef struct timfuncEx timfuncEx_t;
 
+struct sigfuncEx {
+  gpioSignalFuncEx_t f;
+};
+typedef struct sigfuncEx sigfuncEx_t;
+
 enum slottype {
                ALERT = 0,
                TIMER = 1,
                ISR = 2,
+               SIGNAL = 3
 };
 typedef enum slottype slottype_t;
 
@@ -63,10 +70,17 @@ struct isrslot {
 };
 typedef struct isrslot isrslot_t;
 
+struct sigslot {
+  unsigned signum;
+  uint32_t tick;
+};
+typedef struct sigslot sigslot_t;
+
 union slot {
   alertslot_t alert;
   timerslot_t timer;
   isrslot_t isr;
+  sigslot_t sig;
 };
 typedef union slot slot_t;
 
@@ -89,5 +103,5 @@ typedef struct anchor anchor_t;
 int utlSetAlertFunc(lua_State *L);
 int utlSetISRFunc(lua_State *L);
 int utlSetTimerFunc(lua_State *L);
-
+int utlSetSignalFunc(lua_State *L);
 #endif

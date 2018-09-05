@@ -15,9 +15,11 @@
 // Replacements of native calls
 %native (gpioSetAlertFunc) int utlSetAlertFunc(lua_State *L);
 //%native (gpioSetAlertFuncEx) int utlSetAlertFuncEx(lua_State *L);
+%native (gpioSetTimerFunc) int utlSetTimerFunc(lua_State *L);
+//%native (gpioSetTimerFuncEx) int utlSetTimerFuncEx(lua_State *L);
 %native (gpioSetISRFunc) int utlSetISRFunc(lua_State *L);
 //%native (gpioSetISRFuncEx) int utlSetISRFuncEx(lua_State *L);
-%native (gpioSetTimerFunc) int utlSetTimerFunc(lua_State *L);
+%native (gpioSetSignalFunc) int utlSetSignalFunc(lua_State *L);
 //%native (gpioSetTimerFuncEx) int utlSetTimerFuncEx(lua_State *L);
 
 // type mapping

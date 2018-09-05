@@ -32,6 +32,7 @@ static event_t* dequeue(anchor_t* anchor);
 
 alertfuncEx_t alertfuncsEx[MAX_ALERTS];
 isrfuncEx_t isrfuncsEx[MAX_ISRGPIO];
+sigfuncEx_t sigfuncsEx[MAX_SIGNALS];
 
 static void timerFuncEx0(void *uparam) { return timerFuncEx(0, uparam); }
 static void timerFuncEx1(void *uparam) { return timerFuncEx(1, uparam); }
@@ -92,6 +93,20 @@ static unsigned get_timer_index(lua_State *L, unsigned min, unsigned max)
   if ((index < min) || (index > max))
     luaL_error(L, "Invalid timer index %d (allowed = %d .. %d).", index + 1, 1, MAX_TIMERS);
   return index;
+}
+
+/*
+ * Process signum parameter.
+ */
+static unsigned get_signum(lua_State *L, unsigned min, unsigned max)
+{
+  unsigned signum;
+  if (lua_isnumber(L, 1) == 0)  /* func, time, index */
+    luaL_error(L, "Number expected as arg 1, received %s.", lua_typename(L, lua_type(L, 1)));
+  signum = lua_tonumber(L, 1);
+  if ((signum < min) || (signum > max))
+    luaL_error(L, "Invalid signal number %d (allowed = %d .. %d).", signum + 1, 1, MAX_TIMERS);
+  return signum;
 }
 
 /*
@@ -158,6 +173,16 @@ static void handler(lua_State *L, lua_Debug *ar)
         lua_pushnumber(L, event->slot.isr.level);
         lua_pushnumber(L, event->slot.isr.tick);
         lua_call(L, 3, 0);
+      }
+      break;
+    case SIGNAL:
+      {
+        sigfuncEx_t *cbfunc = &sigfuncsEx[event->slot.sig.signum];
+        lua_pushlightuserdata(L, &cbfunc->f);
+        lua_gettable(L, LUA_REGISTRYINDEX);
+        lua_pushnumber(L, event->slot.sig.signum);
+        lua_pushnumber(L, event->slot.sig.tick);
+        lua_call(L, 2, 0);
       }
       break;
     }
@@ -270,6 +295,24 @@ static void isrFuncEx(int gpio, int level, uint32_t tick, void *userparam)
   lua_sethook(L, handler, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, 1);
 }
 
+/*
+ * Signal  event:
+ * Put event in the correct Lua hook slot and schedule the hook handler.
+ */
+static void sigFuncEx(int signum, void *userparam)
+{
+  lua_State *L = userparam;
+  event_t *event;
+  uint32_t tick = gpioTick();
+  dprintf("signal: signum=%d tick=%d qlen=%d\n", signum, tick, anchor.count);
+  remind_hooks(L);
+  event = malloc(sizeof(event_t));
+  event->type = SIGNAL;
+  event->slot.sig.signum = signum;
+  event->slot.sig.tick = tick;
+  enqueue(&anchor, event);
+  lua_sethook(L, handler, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, 1);
+}
 
 /*
  * Lua binding: retval = setAlertFunc(gpio, func)
@@ -377,3 +420,31 @@ int utlSetISRFunc(lua_State *L)
   }
 }
 
+/*
+ * Lua binding: succ = setSignalFunc(signum, func)
+ */
+int utlSetSignalFunc(lua_State *L)
+{
+  unsigned signum;
+  sigfuncEx_t *cbfunc;
+  int retval;
+  signum = get_signum(L, 0, MAX_SIGNALS-1);
+  cbfunc = &sigfuncsEx[signum];
+  if (!lua_isnil(L, 2)) {
+    lua_pushlightuserdata(L, &cbfunc->f);
+    lua_pushvalue(L, 2);
+    lua_settable(L, LUA_REGISTRYINDEX);
+    LL = L;
+    retval = gpioSetSignalFuncEx(signum, sigFuncEx, L);
+    lua_pushnumber(L, retval);
+    return 1;
+  } else {
+    /* cancel signal handling by pigpio */
+    retval = gpioSetSignalFuncEx(signum, NULL, L);
+    lua_pushnumber(L, retval);
+    lua_pushlightuserdata(L, &cbfunc->f);
+    lua_pushnil(L);
+    lua_settable(L, LUA_REGISTRYINDEX);
+    return 1;
+  }
+}
