@@ -67,6 +67,9 @@ for i = 1, N/2 do
 --   collectgarbage("collect")
 end
 
+print("wait a second ...")
+gpio.wait(1)
+
 print("cleanup ...")
 gpio.setMode(pout, gpio.INPUT)
 gpio.terminate()

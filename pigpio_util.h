@@ -24,26 +24,31 @@
 
 struct alertfuncEx {
   gpioAlertFuncEx_t f;
+  void *u;
 };
 typedef struct alertfuncEx alertfuncEx_t;
 
 struct isrfuncEx {
   gpioISRFuncEx_t f;
+  void *u;
 };
 typedef struct isrfuncEx isrfuncEx_t;
 
 struct timfuncEx {
   gpioTimerFuncEx_t f;
+  void *u;
 };
 typedef struct timfuncEx timfuncEx_t;
 
 struct sigfuncEx {
   gpioSignalFuncEx_t f;
+  void *u;
 };
 typedef struct sigfuncEx sigfuncEx_t;
 
 struct samplefuncEx {
   gpioGetSamplesFuncEx_t f;
+  void *u;
 };
 typedef struct samplefuncEx samplefuncEx_t;
 

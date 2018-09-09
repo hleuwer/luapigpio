@@ -18,6 +18,9 @@
 #else
 #define dprintf2(...)
 #endif
+
+#define eprintf(...) fprintf(stderr, __VA_ARGS__)
+
 /*
  * Forward declaration.
  */
@@ -48,16 +51,16 @@ static void timerFuncEx9(void *uparam) { return timerFuncEx(9, uparam); }
 
 timfuncEx_t timfuncsEx[MAX_TIMERS] =
   {
-   { timerFuncEx0},
-   { timerFuncEx1},
-   { timerFuncEx2},
-   { timerFuncEx3},
-   { timerFuncEx4},
-   { timerFuncEx5},
-   { timerFuncEx6},
-   { timerFuncEx7},
-   { timerFuncEx8},
-   { timerFuncEx9}
+   { timerFuncEx0, NULL},
+   { timerFuncEx1, NULL},
+   { timerFuncEx2, NULL},
+   { timerFuncEx3, NULL},
+   { timerFuncEx4, NULL},
+   { timerFuncEx5, NULL},
+   { timerFuncEx6, NULL},
+   { timerFuncEx7, NULL},
+   { timerFuncEx8, NULL},
+   { timerFuncEx9, NULL}
   };
 
 static lua_State *LL = NULL;
@@ -73,12 +76,16 @@ static anchor_t anchor = {NULL, NULL, 0, LIMIT_EVENT_QUEUE};
 static int get_gpio(lua_State *L, int stackindex, unsigned min, unsigned max)
 {
   unsigned gpio;
-  if (lua_isnumber(L, stackindex) == 0)
+  if (lua_isnumber(L, stackindex) == 0){
+    gpioTerminate();
     luaL_error(L, "Number expected as arg %d 'GPIO pin', received %s.",
                stackindex, lua_typename(L, lua_type(L, stackindex)));
+  }
   gpio = lua_tonumber(L, stackindex);
-  if (gpio < min || gpio > max)
+  if (gpio < min || gpio > max){
+    gpioTerminate();
     luaL_error(L, "GPIO pin range of 0 to %d exceeded.", MAX_ALERTS - 1);
+  }
   return gpio;
 }
 
@@ -88,11 +95,15 @@ static int get_gpio(lua_State *L, int stackindex, unsigned min, unsigned max)
 static unsigned get_timer_index(lua_State *L, unsigned min, unsigned max)
 {
   unsigned index;
-  if (lua_isnumber(L, 1) == 0)  /* func, time, index */
+  if (lua_isnumber(L, 1) == 0){  /* func, time, index */
+    gpioTerminate();
     luaL_error(L, "Number expected as arg 1, received %s.", lua_typename(L, lua_type(L, 1)));
+  }
   index = lua_tonumber(L, 1) - 1;
-  if ((index < min) || (index > max))
+  if ((index < min) || (index > max)){
+    gpioTerminate();
     luaL_error(L, "Invalid timer index %d (allowed = %d .. %d).", index + 1, 1, MAX_TIMERS);
+  }
   return index;
 }
 
@@ -102,11 +113,15 @@ static unsigned get_timer_index(lua_State *L, unsigned min, unsigned max)
 static unsigned get_signum(lua_State *L, unsigned min, unsigned max)
 {
   unsigned signum;
-  if (lua_isnumber(L, 1) == 0)  /* func, time, index */
+  if (lua_isnumber(L, 1) == 0){  /* func, time, index */
+    gpioTerminate();
     luaL_error(L, "Number expected as arg 1, received %s.", lua_typename(L, lua_type(L, 1)));
+  }
   signum = lua_tonumber(L, 1);
-  if ((signum < min) || (signum > max))
+  if ((signum < min) || (signum > max)){
+    gpioTerminate();
     luaL_error(L, "Invalid signal number %d (allowed = %d .. %d).", signum + 1, 1, MAX_TIMERS);
+  }
   return signum;
 }
 
@@ -128,9 +143,10 @@ static void remind_hooks(lua_State *L)
 /* 
  * Hook handler:
  * Process all slots with a valid entry and call the corresponding Lua callback.
- * - alert_cb(pin, level, tick)
- * - timer_cb(index)
- * - isr_cb(pin, level, tick)
+ * - alert_cb(pin, level, tick, uparam)
+ * - timer_cb(index, uparam)
+ * - isr_cb(pin, level, tick, uparam)
+ * - sample_cb(samples, nsample, uparam)
  * When all callbacks are processed the Lua hook is restored.
  */
 static void handler(lua_State *L, lua_Debug *ar)
@@ -150,7 +166,9 @@ static void handler(lua_State *L, lua_Debug *ar)
         lua_pushnumber(L, event->slot.alert.index);
         lua_pushnumber(L, event->slot.alert.level);
         lua_pushnumber(L, event->slot.alert.tick);
-        lua_call(L, 3, 0);
+        lua_pushlightuserdata(L, &cbfunc->u);
+        lua_gettable(L, LUA_REGISTRYINDEX);
+        lua_call(L, 4, 0);
       }
       break;
     case TIMER:
@@ -162,7 +180,9 @@ static void handler(lua_State *L, lua_Debug *ar)
         lua_gettable(L, LUA_REGISTRYINDEX);
         lua_pushnumber(L, event->slot.timer.index+1);
         lua_pushnumber(L, event->slot.timer.tick);
-        lua_call(L, 2, 0);
+        lua_pushlightuserdata(L, &cbfunc->u);
+        lua_gettable(L, LUA_REGISTRYINDEX);
+        lua_call(L, 3, 0);
       }
       break;
     case ISR:
@@ -173,7 +193,9 @@ static void handler(lua_State *L, lua_Debug *ar)
         lua_pushnumber(L, event->slot.isr.index);
         lua_pushnumber(L, event->slot.isr.level);
         lua_pushnumber(L, event->slot.isr.tick);
-        lua_call(L, 3, 0);
+        lua_pushlightuserdata(L, &cbfunc->u);
+        lua_gettable(L, LUA_REGISTRYINDEX);
+        lua_call(L, 4, 0);
       }
       break;
     case SIGNAL:
@@ -183,7 +205,9 @@ static void handler(lua_State *L, lua_Debug *ar)
         lua_gettable(L, LUA_REGISTRYINDEX);
         lua_pushnumber(L, event->slot.sig.signum);
         lua_pushnumber(L, event->slot.sig.tick);
-        lua_call(L, 2, 0);
+        lua_pushlightuserdata(L, &cbfunc->u);
+        lua_gettable(L, LUA_REGISTRYINDEX);
+        lua_call(L, 3, 0);
       }
       break;
     case SAMPLE:
@@ -217,7 +241,9 @@ static void handler(lua_State *L, lua_Debug *ar)
           sample++;
         }
         lua_pushnumber(L, nsample);   /* nsamp, stab, func */
-        lua_call(L, 2, 0);
+        lua_pushlightuserdata(L, &cbfunc->u);
+        lua_gettable(L, LUA_REGISTRYINDEX);
+        lua_call(L, 3, 0);
       }
       break;
     }
@@ -250,10 +276,9 @@ static int enqueue(anchor_t* anchor, event_t* event)
     return 0;
   } else {
     anchor->drop++;
-    dprintf2("eq: %d drop\n", anchor->count);
+    eprintf("Warning: event drop at %d.\n", anchor->count);
     return -1;
-  }
-  
+  }  
 }
 
 /*
@@ -378,14 +403,24 @@ int utlSetAlertFunc(lua_State *L)
   alertfuncEx_t *cbfunc;
   int retval;
   gpio = get_gpio(L, 1, 0, MAX_ALERTS - 1);
-  if (lua_isfunction(L, 2) == 0)       /* func, index */ 
+  if (lua_isfunction(L, 2) == 0){       /* func, index */
+    gpioTerminate();
     luaL_error(L, "Function expected as arg 2, received %s.", lua_typename(L, lua_type(L, 2)));
+  }
   cbfunc = &alertfuncsEx[gpio];
   cbfunc->f = alertFuncEx;
   /* memorize lua function in registry */
   lua_pushlightuserdata(L, &cbfunc->f); /* key, func, index */
   lua_pushvalue(L, 2);                  /* func, key, func, index */
   lua_settable(L, LUA_REGISTRYINDEX);   /* func, index */
+  if (lua_isnoneornil(L, 3) == 1){
+    lua_pushlightuserdata(L, &cbfunc->u);
+    lua_pushnil(L);
+  } else {
+    lua_pushlightuserdata(L, &cbfunc->u);
+    lua_pushvalue(L, 3);
+  }
+  lua_settable(L, LUA_REGISTRYINDEX);
   LL = L;
   //init_slot(ALERT, gpio);
   retval = gpioSetAlertFuncEx(gpio, cbfunc->f, L);
@@ -404,19 +439,31 @@ int utlSetTimerFunc(lua_State *L)
   int retval;
 
   index = get_timer_index(L, 0, MAX_TIMERS - 1);
-  if (lua_isnumber(L, 2) == 0) 
+  if (lua_isnumber(L, 2) == 0){ 
+    gpioTerminate();
     luaL_error(L, "Number expected as arg 2 'time', received %s.",
                lua_typename(L, lua_type(L, 2)));
+  }
   time = lua_tonumber(L, 2);
-  if (!lua_isnil(L, 3) && !lua_isfunction(L, 3))
+  if (!lua_isnil(L, 3) && !lua_isfunction(L, 3)){
+    gpioTerminate();
     luaL_error(L, "Function or nil expected as arg 3 'func', received %s.",
                lua_typename(L, lua_type(L, 3)));
+  }
   /* func not nil => set timer, func is nil => cancel timter */
   cbfunc = &timfuncsEx[index];
   if (!lua_isnil(L, 3)){
     lua_pushlightuserdata(L, &cbfunc->f);  /* s: key, func, time, index */
     lua_pushvalue(L, 3);                   /* s: func, key, func, time, index */
     lua_settable(L, LUA_REGISTRYINDEX);    /* s: func, time, index */
+    if (lua_isnoneornil(L, 4) == 1){
+      lua_pushlightuserdata(L, &cbfunc->u);
+      lua_pushnil(L);
+    } else {
+      lua_pushlightuserdata(L, &cbfunc->u);
+      lua_pushvalue(L, 4);
+    }
+    lua_settable(L, LUA_REGISTRYINDEX);
     LL = L;
     remind_hooks(L);
     retval = gpioSetTimerFuncEx(index, time, cbfunc->f, L);
@@ -427,6 +474,9 @@ int utlSetTimerFunc(lua_State *L)
     retval = gpioSetTimerFuncEx(index, time, NULL, L);
     lua_pushnumber(L, retval);              /* res, func, time, index */
     lua_pushlightuserdata(L, &cbfunc->f);
+    lua_pushnil(L);
+    lua_settable(L, LUA_REGISTRYINDEX);
+    lua_pushlightuserdata(L, &cbfunc->u);
     lua_pushnil(L);
     lua_settable(L, LUA_REGISTRYINDEX);
     return 1;
@@ -444,13 +494,17 @@ int utlSetISRFunc(lua_State *L)
   isrfuncEx_t *cbfunc;
   int retval;
   gpio = get_gpio(L, 1, 0, MAX_ISRGPIO - 1);
-  if (lua_isnumber(L, 2) == 0)      /* func, tout, edge, pin */
+  if (lua_isnumber(L, 2) == 0){      /* func, tout, edge, pin */
+    gpioTerminate();
     luaL_error(L, "Number expected as arg 2 'edge', received %s.",
                lua_typename(L, lua_type(L, 2)));
+  }
   edge = lua_tonumber(L, 2);
-  if (lua_isnumber(L, 3) == 0)      /* func, tout, edge, pin */
+  if (lua_isnumber(L, 3) == 0){      /* func, tout, edge, pin */
+    gpioTerminate();
     luaL_error(L, "Number expected as arg 3 'timeout', received %s.",
                lua_typename(L, lua_type(L, 3)));
+  }
   timeout = lua_tonumber(L, 3);
   cbfunc = &isrfuncsEx[gpio];
   cbfunc->f = isrFuncEx;
@@ -459,7 +513,15 @@ int utlSetISRFunc(lua_State *L)
     lua_pushlightuserdata(L, &cbfunc->f);      /* key, func, tout, edge, pin */
     lua_pushvalue(L, 4);                   /* func, key, func, tout, edge, pin */
     lua_settable(L, LUA_REGISTRYINDEX);    /* func, tout, edge, pin */
-    LL = L;
+    if (lua_isnoneornil(L, 5) == 1){
+      lua_pushlightuserdata(L, &cbfunc->u);
+      lua_pushnil(L);
+    } else {
+      lua_pushlightuserdata(L, &cbfunc->u);
+      lua_pushvalue(L, 5);
+    }
+    lua_settable(L, LUA_REGISTRYINDEX);
+    LL = L;    
     retval = gpioSetISRFuncEx(gpio, edge, timeout, cbfunc->f, L);
     lua_pushnumber(L, retval);             /* res, thr, func, tout, edge, pin */
     return 1;
@@ -471,6 +533,9 @@ int utlSetISRFunc(lua_State *L)
     lua_pushlightuserdata(L, &cbfunc->f);      /* key, func, ... */
     lua_pushnil(L);                        /* func, key, func, tout, ... */
     lua_settable(L, LUA_REGISTRYINDEX);    /* func, tout, edge, pin */
+    lua_pushlightuserdata(L, &cbfunc->u);
+    lua_pushnil(L);
+    lua_settable(L, LUA_REGISTRYINDEX);
     return 1;
   }
 }
@@ -490,6 +555,14 @@ int utlSetSignalFunc(lua_State *L)
     lua_pushlightuserdata(L, &cbfunc->f);
     lua_pushvalue(L, 2);
     lua_settable(L, LUA_REGISTRYINDEX);
+    if (lua_isnoneornil(L, 3) == 1){
+      lua_pushlightuserdata(L, &cbfunc->u);
+      lua_pushnil(L);
+    } else {
+      lua_pushlightuserdata(L, &cbfunc->u);
+      lua_pushvalue(L, 3);
+    }
+    lua_settable(L, LUA_REGISTRYINDEX);
     LL = L;
     retval = gpioSetSignalFuncEx(signum, cbfunc->f, L);
     lua_pushnumber(L, retval);
@@ -499,6 +572,9 @@ int utlSetSignalFunc(lua_State *L)
     retval = gpioSetSignalFuncEx(signum, NULL, L);
     lua_pushnumber(L, retval);
     lua_pushlightuserdata(L, &cbfunc->f);
+    lua_pushnil(L);
+    lua_settable(L, LUA_REGISTRYINDEX);
+    lua_pushlightuserdata(L, &cbfunc->u);
     lua_pushnil(L);
     lua_settable(L, LUA_REGISTRYINDEX);
     return 1;
@@ -514,15 +590,25 @@ int utlSetGetSamplesFunc(lua_State *L)
   samplefuncEx_t *cbfunc;
   int retval;
 
-  if (lua_isnumber(L, 2) == 0)
+  if (lua_isnumber(L, 2) == 0){
+    gpioTerminate();
     luaL_error(L, "Number expected as arg %d 'GPIO bitmask', received %s.",
                2, lua_typename(L, lua_type(L, 2)));
+  }
   bits = lua_tonumber(L, 2);
   cbfunc = &samplefuncEx;
   cbfunc->f = sampleFuncEx;
   if (!lua_isnil(L, 1)){
     lua_pushlightuserdata(L, &cbfunc->f);
     lua_pushvalue(L, 1);
+    lua_settable(L, LUA_REGISTRYINDEX);
+    if (lua_isnoneornil(L, 3) == 1){
+      lua_pushlightuserdata(L, &cbfunc->u);
+      lua_pushnil(L);
+    } else {
+      lua_pushlightuserdata(L, &cbfunc->u);
+      lua_pushvalue(L, 3);
+    }
     lua_settable(L, LUA_REGISTRYINDEX);
     LL = L;
     retval = gpioSetGetSamplesFuncEx(cbfunc->f, bits, L);
@@ -532,6 +618,9 @@ int utlSetGetSamplesFunc(lua_State *L)
     retval = gpioSetGetSamplesFuncEx(NULL, bits, L);
     lua_pushnumber(L, retval);
     lua_pushlightuserdata(L, &cbfunc->f);
+    lua_pushnil(L);
+    lua_settable(L, LUA_REGISTRYINDEX);
+    lua_pushlightuserdata(L, &cbfunc->u);
     lua_pushnil(L);
     lua_settable(L, LUA_REGISTRYINDEX);
     return 1;

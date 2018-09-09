@@ -25,7 +25,7 @@ assert(dT >= 10, "min. interval of 10 ms violated!")
 ---
 -- One common timeout function used for all timers
 ---
-local function timeout(index, tick)
+local function timeout(index, tick, udata)
    local now = gpio.tick()
    local deltaT = now - (last_timeouts[index] or 0)
    last_timeouts[index] = now
@@ -33,8 +33,10 @@ local function timeout(index, tick)
    tcount[index] = (tcount[index] or 0) + 1
    if show == 1 then
       -- show timer expiration info - long
-      printf("Timer %2d expired: count=%4d (%4d us) dT=%7.3f ms terr=%7.3f ms garbage:%.1f kB (%d)",
-             index, tcount[index], now-tick, deltaT/1000,  terror[index]/1000/tcount[index], collectgarbage("count"))
+      printf("Timer %2d expired: count=%4d (%4d us) dT=%7.3f ms terr=%7.3f ms %12s udata[1]=%4d garbage:%.1f kB (%d)",
+             index, tcount[index], now-tick, deltaT/1000,  terror[index]/1000/tcount[index],
+             udata.someText, udata[1],
+             collectgarbage("count"))
    elseif show == 2 then
       -- show timer expirattin as index in a row
       io.stdout:write(index.." ") io.stdout:flush()
@@ -45,9 +47,11 @@ end
 ---
 -- Start the timers.
 ---
+local userparam = {}
 for i = 1, N do
    local dTime = i * dT
-   local succ= gpio.setTimerFunc(i, dTime, timeout)
+   userparam[i] = {someText = "tout-"..i.." is: ", dTime}
+   local succ= gpio.setTimerFunc(i, dTime, timeout, userparam[i])
    printf("Timer %d started: dT=%d succ=%s tout=%s", i, dTime, tostring(succ), tostring(timeout))
    last_timeouts[i] = gpio.tick()
 end
