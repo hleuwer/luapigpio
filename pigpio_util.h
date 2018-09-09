@@ -42,11 +42,17 @@ struct sigfuncEx {
 };
 typedef struct sigfuncEx sigfuncEx_t;
 
+struct samplefuncEx {
+  gpioGetSamplesFuncEx_t f;
+};
+typedef struct samplefuncEx samplefuncEx_t;
+
 enum slottype {
                ALERT = 0,
                TIMER = 1,
                ISR = 2,
-               SIGNAL = 3
+               SIGNAL = 3,
+               SAMPLE = 4
 };
 typedef enum slottype slottype_t;
 
@@ -76,11 +82,19 @@ struct sigslot {
 };
 typedef struct sigslot sigslot_t;
 
+struct sampleslot {
+  int numsamples;
+  gpioSample_t *samples;
+  uint32_t tick;
+};
+typedef struct sampleslot sampleslot_t;
+
 union slot {
   alertslot_t alert;
   timerslot_t timer;
   isrslot_t isr;
   sigslot_t sig;
+  sampleslot_t sample;
 };
 typedef union slot slot_t;
 
@@ -104,4 +118,5 @@ int utlSetAlertFunc(lua_State *L);
 int utlSetISRFunc(lua_State *L);
 int utlSetTimerFunc(lua_State *L);
 int utlSetSignalFunc(lua_State *L);
+int utlSetGetSamplesFunc(lua_State *L);
 #endif

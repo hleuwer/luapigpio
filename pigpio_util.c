@@ -33,6 +33,7 @@ static event_t* dequeue(anchor_t* anchor);
 alertfuncEx_t alertfuncsEx[MAX_ALERTS];
 isrfuncEx_t isrfuncsEx[MAX_ISRGPIO];
 sigfuncEx_t sigfuncsEx[MAX_SIGNALS];
+samplefuncEx_t samplefuncEx;
 
 static void timerFuncEx0(void *uparam) { return timerFuncEx(0, uparam); }
 static void timerFuncEx1(void *uparam) { return timerFuncEx(1, uparam); }
@@ -185,12 +186,46 @@ static void handler(lua_State *L, lua_Debug *ar)
         lua_call(L, 2, 0);
       }
       break;
+    case SAMPLE:
+      {
+        int i;
+#ifdef USE_SAMPLE_UDATA
+        gpioSample_t *lsample;
+#endif
+        samplefuncEx_t *cbfunc = &samplefuncEx;
+        int nsample = event->slot.sample.numsamples;
+        gpioSample_t *sample = event->slot.sample.samples;
+        lua_pushlightuserdata(L, &cbfunc->f);
+        lua_gettable(L, LUA_REGISTRYINDEX);   /* func */
+        lua_newtable(L);                      /* stab, func */
+        for (i=1; i <= nsample; i++){
+          lua_pushnumber(L, i);                /* i, stab, func */
+#ifdef USE_SAMPLE_UDATA
+          lsample = lua_newuserdata(L, sizeof(gpioSample_t)); /* ud, i, stab, func */
+          lsample->tick = sample->tick;
+          lsample->level = sample->level;
+#else
+          lua_newtable(L);   /* etab, i, stab, func */
+          lua_pushstring(L, "tick");       /* k, etab, i, stab, func */
+          lua_pushnumber(L, sample->tick); /* v, k, etab, i, stab, func */
+          lua_settable(L, -3);             /* etab, i, stab, func */
+          lua_pushstring(L, "level");
+          lua_pushnumber(L, sample->level);
+          lua_settable(L, -3);             /* etab, i, stab, func */
+#endif
+          lua_settable(L, -3);             /* stab, func */
+          sample++;
+        }
+        lua_pushnumber(L, nsample);   /* nsamp, stab, func */
+        lua_call(L, 2, 0);
+      }
+      break;
     }
     dprintf("HANDLER 3: almost done. qlen=%d qfirst=%p qlast=%p\n",
             anchor.count, anchor.first, anchor.last);
     free(event);
     event = dequeue(&anchor);
-    dprintf("HANDLER 3: %p qlen=%d qfirst=%p qlast=%p\n",
+    dprintf("HANDLER 4: %p qlen=%d qfirst=%p qlast=%p\n",
             event, anchor.count, anchor.first, anchor.last);
   }
   /* All slots processed: restore old hooks */
@@ -240,7 +275,7 @@ static event_t* dequeue(anchor_t* anchor)
 
 /* 
  * Alert event:
- * Put event in the correct Lua hook slot and schedule the hook handler.
+ * Put event in hook event queue and schedule the hook handler.
  */
 static void alertFuncEx(int gpio, int level, uint32_t tick, void *userparam)
 {
@@ -259,7 +294,7 @@ static void alertFuncEx(int gpio, int level, uint32_t tick, void *userparam)
 
 /* 
  * Timer event:
- * Put event in the correct Lua hook slot and schedule the hook handler.
+ * Put event in hook event queue and schedule the hook handler.
  */
 static void timerFuncEx(unsigned index, void *userparam)
 {
@@ -278,7 +313,7 @@ static void timerFuncEx(unsigned index, void *userparam)
 
 /*
  * Interrupt event:
- * Put event in the correct Lua hook slot and schedule the hook handler.
+ * Put event in hook event queue and schedule the hook handler.
  */
 static void isrFuncEx(int gpio, int level, uint32_t tick, void *userparam)
 {
@@ -297,7 +332,7 @@ static void isrFuncEx(int gpio, int level, uint32_t tick, void *userparam)
 
 /*
  * Signal  event:
- * Put event in the correct Lua hook slot and schedule the hook handler.
+ * Put event in hook event queue and schedule the hook handler.
  */
 static void sigFuncEx(int signum, void *userparam)
 {
@@ -314,6 +349,25 @@ static void sigFuncEx(int signum, void *userparam)
   lua_sethook(L, handler, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, 1);
 }
 
+/*
+ * Get sample event:
+ * Put event in hook event queue and schedule the hook handler.
+ */
+static void sampleFuncEx(const gpioSample_t *samples, int numsamples, void *userparam)
+{
+  lua_State *L = userparam;
+  event_t *event;
+  uint32_t tick = gpioTick();
+  dprintf("sample: samples=%p num=%d qlen=%d\n", samples, numsamples, anchor.count);
+  remind_hooks(L);
+  event = malloc(sizeof(event_t));
+  event->type = SAMPLE;
+  event->slot.sample.numsamples = numsamples;
+  event->slot.sample.samples = (gpioSample_t *) samples;
+  event->slot.sample.tick = tick;
+  enqueue(&anchor, event);
+  lua_sethook(L, handler, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, 1);
+}
 /*
  * Lua binding: retval = setAlertFunc(gpio, func)
  * Returns: see documentation of gpioSetAlertFunc.
@@ -399,13 +453,14 @@ int utlSetISRFunc(lua_State *L)
                lua_typename(L, lua_type(L, 3)));
   timeout = lua_tonumber(L, 3);
   cbfunc = &isrfuncsEx[gpio];
+  cbfunc->f = isrFuncEx;
   if (!lua_isnil(L, 4)) {           /* func, tout, edge, pin */
     /* memorize lua function in registry using isrfunc struct as index */
     lua_pushlightuserdata(L, &cbfunc->f);      /* key, func, tout, edge, pin */
     lua_pushvalue(L, 4);                   /* func, key, func, tout, edge, pin */
     lua_settable(L, LUA_REGISTRYINDEX);    /* func, tout, edge, pin */
     LL = L;
-    retval = gpioSetISRFuncEx(gpio, edge, timeout, isrFuncEx, L);
+    retval = gpioSetISRFuncEx(gpio, edge, timeout, cbfunc->f, L);
     lua_pushnumber(L, retval);             /* res, thr, func, tout, edge, pin */
     return 1;
   } else {
@@ -430,12 +485,13 @@ int utlSetSignalFunc(lua_State *L)
   int retval;
   signum = get_signum(L, 0, MAX_SIGNALS-1);
   cbfunc = &sigfuncsEx[signum];
+  cbfunc->f = sigFuncEx;
   if (!lua_isnil(L, 2)) {
     lua_pushlightuserdata(L, &cbfunc->f);
     lua_pushvalue(L, 2);
     lua_settable(L, LUA_REGISTRYINDEX);
     LL = L;
-    retval = gpioSetSignalFuncEx(signum, sigFuncEx, L);
+    retval = gpioSetSignalFuncEx(signum, cbfunc->f, L);
     lua_pushnumber(L, retval);
     return 1;
   } else {
@@ -447,4 +503,38 @@ int utlSetSignalFunc(lua_State *L)
     lua_settable(L, LUA_REGISTRYINDEX);
     return 1;
   }
+}
+
+/*
+ * Lua binding: succ = setGetSamplesFunc(func, bits)
+ */
+int utlSetGetSamplesFunc(lua_State *L)
+{
+  uint32_t bits;
+  samplefuncEx_t *cbfunc;
+  int retval;
+
+  if (lua_isnumber(L, 2) == 0)
+    luaL_error(L, "Number expected as arg %d 'GPIO bitmask', received %s.",
+               2, lua_typename(L, lua_type(L, 2)));
+  bits = lua_tonumber(L, 2);
+  cbfunc = &samplefuncEx;
+  cbfunc->f = sampleFuncEx;
+  if (!lua_isnil(L, 1)){
+    lua_pushlightuserdata(L, &cbfunc->f);
+    lua_pushvalue(L, 1);
+    lua_settable(L, LUA_REGISTRYINDEX);
+    LL = L;
+    retval = gpioSetGetSamplesFuncEx(cbfunc->f, bits, L);
+    lua_pushnumber(L, retval);
+    return 1;
+  } else {
+    retval = gpioSetGetSamplesFuncEx(NULL, bits, L);
+    lua_pushnumber(L, retval);
+    lua_pushlightuserdata(L, &cbfunc->f);
+    lua_pushnil(L);
+    lua_settable(L, LUA_REGISTRYINDEX);
+    return 1;
+  }
+  
 }

@@ -3,7 +3,7 @@ EOBJS=../pigpio.o ../command.o
 WOBJS=$(WRAPPER:.c=.o) pigpio_util.o
 #OBJS = $(EOBJS) $(WOBJS)
 OBJS = $(WOBJS)
-CFLAGS= -O2 -c -fpic
+CFLAGS= -ggdb -Wall -c -fpic
 LDFLAGS= -shared
 LIBS=-lpigpio -lpthread
 LUAV=5.2
