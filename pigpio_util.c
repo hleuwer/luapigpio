@@ -1,10 +1,12 @@
 #include "lua.h"
+#include "lualib.h"
 #include "lauxlib.h"
 
 #include "pigpio_util.h"
 #include <stdio.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <string.h>
 
 //#define DEBUG
 #if DEBUG == 1
@@ -20,6 +22,28 @@
 #endif
 
 #define eprintf(...) fprintf(stderr, __VA_ARGS__)
+
+#define TERMINATE_PIGPIO()
+
+/*
+ * Lua version adaptations
+ */
+#if (LUA_VERSION_NUM >= 503)
+#define dump( L, writer, data, strip )     lua_dump( L, writer, data, strip )
+#define copynumber( Lto, Lfrom, i ) {           \
+  if ( lua_isinteger( Lfrom, i )) {  \
+    lua_pushinteger( Lto, lua_tonumber( Lfrom, i )); \
+  } else {\
+    lua_pushnumber( Lto, lua_tonumber( Lfrom, i ));\
+  }\
+}
+#else
+#define dump( L, writer, data, strip )     lua_dump( L, writer, data )
+#define copynumber( Lto, Lfrom, i ) \
+  lua_pushnumber( Lto, lua_tonumber( Lfrom, i ))
+#endif
+
+#define isequal(L, a, b) lua_compare(L, a, b, LUA_OPEQ)
 
 /*
  * Forward declaration.
@@ -37,6 +61,7 @@ alertfuncEx_t alertfuncsEx[MAX_ALERTS];
 isrfuncEx_t isrfuncsEx[MAX_ISRGPIO];
 sigfuncEx_t sigfuncsEx[MAX_SIGNALS];
 samplefuncEx_t samplefuncEx;
+threadfunc_t thrFunc;
 
 static void timerFuncEx0(void *uparam) { return timerFuncEx(0, uparam); }
 static void timerFuncEx1(void *uparam) { return timerFuncEx(1, uparam); }
@@ -77,13 +102,13 @@ static int get_gpio(lua_State *L, int stackindex, unsigned min, unsigned max)
 {
   unsigned gpio;
   if (lua_isnumber(L, stackindex) == 0){
-    gpioTerminate();
+    TERMINATE_PIGPIO();
     luaL_error(L, "Number expected as arg %d 'GPIO pin', received %s.",
                stackindex, lua_typename(L, lua_type(L, stackindex)));
   }
   gpio = lua_tonumber(L, stackindex);
   if (gpio < min || gpio > max){
-    gpioTerminate();
+    TERMINATE_PIGPIO();
     luaL_error(L, "GPIO pin range of 0 to %d exceeded.", MAX_ALERTS - 1);
   }
   return gpio;
@@ -96,12 +121,12 @@ static unsigned get_timer_index(lua_State *L, unsigned min, unsigned max)
 {
   unsigned index;
   if (lua_isnumber(L, 1) == 0){  /* func, time, index */
-    gpioTerminate();
+    TERMINATE_PIGPIO();
     luaL_error(L, "Number expected as arg 1, received %s.", lua_typename(L, lua_type(L, 1)));
   }
   index = lua_tonumber(L, 1) - 1;
   if ((index < min) || (index > max)){
-    gpioTerminate();
+    TERMINATE_PIGPIO();
     luaL_error(L, "Invalid timer index %d (allowed = %d .. %d).", index + 1, 1, MAX_TIMERS);
   }
   return index;
@@ -114,12 +139,12 @@ static unsigned get_signum(lua_State *L, unsigned min, unsigned max)
 {
   unsigned signum;
   if (lua_isnumber(L, 1) == 0){  /* func, time, index */
-    gpioTerminate();
+    TERMINATE_PIGPIO();
     luaL_error(L, "Number expected as arg 1, received %s.", lua_typename(L, lua_type(L, 1)));
   }
   signum = lua_tonumber(L, 1);
   if ((signum < min) || (signum > max)){
-    gpioTerminate();
+    TERMINATE_PIGPIO();
     luaL_error(L, "Invalid signal number %d (allowed = %d .. %d).", signum + 1, 1, MAX_TIMERS);
   }
   return signum;
@@ -394,7 +419,7 @@ static void sampleFuncEx(const gpioSample_t *samples, int numsamples, void *user
   lua_sethook(L, handler, LUA_MASKCALL | LUA_MASKRET | LUA_MASKCOUNT, 1);
 }
 /*
- * Lua binding: retval = setAlertFunc(gpio, func)
+ * Lua binding: retval = setAlertFunc(gpio, func[, userdata])
  * Returns: see documentation of gpioSetAlertFunc.
  */
 int utlSetAlertFunc(lua_State *L)
@@ -404,7 +429,7 @@ int utlSetAlertFunc(lua_State *L)
   int retval;
   gpio = get_gpio(L, 1, 0, MAX_ALERTS - 1);
   if (lua_isfunction(L, 2) == 0){       /* func, index */
-    gpioTerminate();
+    TERMINATE_PIGPIO();
     luaL_error(L, "Function expected as arg 2, received %s.", lua_typename(L, lua_type(L, 2)));
   }
   cbfunc = &alertfuncsEx[gpio];
@@ -429,7 +454,7 @@ int utlSetAlertFunc(lua_State *L)
 }
 
 /*
- * Lua binding: retval, thread = setTimerFunc(index, time, func)
+ * Lua binding: retval, thread = setTimerFunc(index, time, func[, userdata])
  * Returns: see documentation of gpioSetCbfunc.
  */
 int utlSetTimerFunc(lua_State *L)
@@ -440,13 +465,13 @@ int utlSetTimerFunc(lua_State *L)
 
   index = get_timer_index(L, 0, MAX_TIMERS - 1);
   if (lua_isnumber(L, 2) == 0){ 
-    gpioTerminate();
+    TERMINATE_PIGPIO();
     luaL_error(L, "Number expected as arg 2 'time', received %s.",
                lua_typename(L, lua_type(L, 2)));
   }
   time = lua_tonumber(L, 2);
   if (!lua_isnil(L, 3) && !lua_isfunction(L, 3)){
-    gpioTerminate();
+    TERMINATE_PIGPIO();
     luaL_error(L, "Function or nil expected as arg 3 'func', received %s.",
                lua_typename(L, lua_type(L, 3)));
   }
@@ -484,7 +509,7 @@ int utlSetTimerFunc(lua_State *L)
 }
 
 /*
- * Lua binding: succ = setISRFunc(pin, edge, timout, func)
+ * Lua binding: succ = setISRFunc(pin, edge, timout, func[, userdata])
  */
 int utlSetISRFunc(lua_State *L)
 {
@@ -495,13 +520,13 @@ int utlSetISRFunc(lua_State *L)
   int retval;
   gpio = get_gpio(L, 1, 0, MAX_ISRGPIO - 1);
   if (lua_isnumber(L, 2) == 0){      /* func, tout, edge, pin */
-    gpioTerminate();
+    TERMINATE_PIGPIO();
     luaL_error(L, "Number expected as arg 2 'edge', received %s.",
                lua_typename(L, lua_type(L, 2)));
   }
   edge = lua_tonumber(L, 2);
   if (lua_isnumber(L, 3) == 0){      /* func, tout, edge, pin */
-    gpioTerminate();
+    TERMINATE_PIGPIO();
     luaL_error(L, "Number expected as arg 3 'timeout', received %s.",
                lua_typename(L, lua_type(L, 3)));
   }
@@ -541,7 +566,7 @@ int utlSetISRFunc(lua_State *L)
 }
 
 /*
- * Lua binding: succ = setSignalFunc(signum, func)
+ * Lua binding: succ = setSignalFunc(signum, func[, userdata])
  */
 int utlSetSignalFunc(lua_State *L)
 {
@@ -582,7 +607,7 @@ int utlSetSignalFunc(lua_State *L)
 }
 
 /*
- * Lua binding: succ = setGetSamplesFunc(func, bits)
+ * Lua binding: succ = setGetSamplesFunc(func, bits [, userdata])
  */
 int utlSetGetSamplesFunc(lua_State *L)
 {
@@ -591,7 +616,7 @@ int utlSetGetSamplesFunc(lua_State *L)
   int retval;
 
   if (lua_isnumber(L, 2) == 0){
-    gpioTerminate();
+    TERMINATE_PIGPIO();
     luaL_error(L, "Number expected as arg %d 'GPIO bitmask', received %s.",
                2, lua_typename(L, lua_type(L, 2)));
   }
@@ -626,4 +651,139 @@ int utlSetGetSamplesFunc(lua_State *L)
     return 1;
   }
   
+}
+
+/*
+ * new thread: param, func 
+ */
+static void *threadFunc(void *uparam)
+{
+  threadfunc_t *cbfunc = uparam;
+  lua_State *L = cbfunc->L;
+  int narg = cbfunc->a;
+  dprintf("thread: %s %d\n", lua_typename(L, lua_type(L,1)), lua_gettop(L));
+  luaL_openlibs(L);
+  lua_call(L, narg, 0);
+  return NULL;
+}
+
+/*
+ * Lua binding: succ = startThread(code, name, ...)
+ */
+int utlStartThread(lua_State *L)
+{
+  threadfunc_t *cbfunc;
+  size_t len;
+  int i;
+  lua_State *newL;
+  const char *code;
+  const char *name;
+  int narg;
+
+  /* allocate a descriptor*/
+  cbfunc = malloc(sizeof(threadfunc_t));
+  cbfunc->f = threadFunc;
+  narg = lua_gettop(L);
+  cbfunc->a = narg - 1;
+  newL = luaL_newstate();
+  cbfunc->L = newL;
+  if (lua_type(L, 1) != LUA_TSTRING){
+    TERMINATE_PIGPIO();
+    luaL_error(L, "Cannot use '%s' to define thread main routine.",
+               luaL_typename(L, lua_type(L, 1)));
+  }
+  /* get code from stack */
+  code = lua_tolstring(L, 1, &len);
+  /* Get name and */
+  name = luaL_checkstring(L, 2);
+  /* Check if name already exists */
+  lua_pushstring(L, name);
+  lua_gettable(L, LUA_REGISTRYINDEX);
+  if (lua_isnil(L, -1) == 0){
+    TERMINATE_PIGPIO();
+    luaL_error(L, "Name '%s' already registered.", name);
+  }
+  /* load and compile string into new state */
+  if (luaL_loadbuffer(newL, code, len, name) != 0){  /* ns: func */
+    lua_pushstring(L, lua_tostring(newL, -1));
+    lua_close(newL);
+    TERMINATE_PIGPIO();
+    luaL_error(L, lua_tostring(L, -1));
+  }
+  /* Push name on new stack */
+  lua_pushstring(newL, name);                        /* ns: name, func */
+  cbfunc->n = strdup(name);
+  /* Provide parameters on new stack */
+  for (i = 3; i <= narg; i++){
+    switch(lua_type(L, i)){
+    case LUA_TNUMBER:
+      lua_pushnumber(newL, lua_tonumber(L, i));      /* ns: param, name, func */
+      break;
+    case LUA_TSTRING:
+      lua_pushstring(newL, lua_tostring(L, i));
+      break;
+    case LUA_TBOOLEAN:
+      lua_pushboolean(newL, lua_toboolean(L, 1));
+      break;
+    case LUA_TNIL:
+      lua_pushnil(newL);
+      break;
+    case LUA_TLIGHTUSERDATA:
+      lua_pushlightuserdata(L, lua_touserdata(L, 1));
+      break;
+    default:
+      TERMINATE_PIGPIO();
+      luaL_error(L, "Invalid parameter type '%s'.",
+                 lua_typename(L, lua_type(L, i)));
+      break;
+    }
+  }
+  /* 
+   * Start new pthread.
+   * Stack: param_n, ..., param_2, param_1, name, func  
+   */
+  cbfunc->t = gpioStartThread(cbfunc->f, cbfunc);
+  /* remind descriptor  in registry for later usage */
+  lua_pushstring(L, cbfunc->n);
+  lua_pushlightuserdata(L, cbfunc);
+  lua_settable(L, LUA_REGISTRYINDEX);
+  if (cbfunc->t == NULL){
+    free(cbfunc);
+    TERMINATE_PIGPIO();
+    luaL_error(L, "Cannot start thread.");
+  } else {
+    lua_pushlightuserdata(L, cbfunc);
+  }
+  return 1;
+}
+
+/*
+ * Lua binding: succ = stopThread(name | userdata)
+ */
+int utlStopThread(lua_State *L)
+{
+  threadfunc_t *cbfunc;
+  int argtype = lua_type(L, 1);
+  
+  if (argtype == LUA_TSTRING) {
+    /* get thread descriptor */
+    lua_gettable(L, LUA_REGISTRYINDEX);
+    if (lua_isnil(L, -1)){
+      TERMINATE_PIGPIO();
+      luaL_error(L, "Thread with name '%s' cannot be found.", lua_tostring(L, 1));
+    }
+  } else if (argtype != LUA_TLIGHTUSERDATA){
+    TERMINATE_PIGPIO();
+    luaL_error(L, "String or userdata expected as arg %d 'name', received %s.", 1,
+               lua_typename(L, lua_type(L, 1)));
+  }
+  cbfunc = lua_touserdata(L, -1);
+  lua_pushstring(L, cbfunc->n);
+  gpioStopThread(cbfunc->t);
+  lua_pushnil(L);
+  lua_settable(L, LUA_REGISTRYINDEX);
+  free(cbfunc->n);
+  free(cbfunc);
+  lua_pushnumber(L, TRUE);
+  return 1;
 }

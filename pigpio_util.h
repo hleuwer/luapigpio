@@ -1,11 +1,17 @@
 #ifndef PIGPIO_UTIL_INCL
 #define PIGPIO_UTIL_INCL
 
+#include <pthread.h>
 #include "lua.h"
 #include "pigpio.h"
 
 #define DEBUG (0)
 #define DEBUG2 (0)
+
+#define UPVALUE_IGNORE_UNSUPPORTED (1)
+
+#define TRUE (1)
+#define FALSE (0)
 #define LIMIT_EVENT_QUEUE (100)
 
 #define MAX_ALERTS (32)
@@ -51,6 +57,15 @@ struct samplefuncEx {
   void *u;
 };
 typedef struct samplefuncEx samplefuncEx_t;
+
+struct threadfunc {
+  gpioThreadFunc_t *f;
+  lua_State *L;
+  int a;
+  pthread_t *t;
+  char *n;
+};
+typedef struct threadfunc threadfunc_t;
 
 enum slottype {
                ALERT = 0,
@@ -124,4 +139,6 @@ int utlSetISRFunc(lua_State *L);
 int utlSetTimerFunc(lua_State *L);
 int utlSetSignalFunc(lua_State *L);
 int utlSetGetSamplesFunc(lua_State *L);
+int utlStartThread(lua_State *L);
+int utlStopThread(lua_State *L);
 #endif
