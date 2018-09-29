@@ -787,3 +787,94 @@ int utlStopThread(lua_State *L)
   lua_pushnumber(L, TRUE);
   return 1;
 }
+
+/*
+ * Lua binding: succ = waveAddGeneric(pulses)
+ * pulses = {{on=PATTERN, off=PATTERN, tick=TICKS},...}
+ */
+int utlWaveAddGeneric(lua_State *L)
+{
+  int n = 0;
+  int res, i;
+  gpioPulse_t *pulses;
+  
+  if (!lua_istable(L, 1)){
+    TERMINATE_PIGPIO();
+    luaL_error(L, "Table expected as arg %d 'pulses', received %s.", 1,
+               lua_typename(L, lua_type(L, 1)));
+  }
+  n = luaL_len(L, 1);            /* pulses */
+  pulses = malloc(n * sizeof(gpioPulse_t));
+  for (i = 0; i < n; i++){
+    lua_pushnumber(L, i + 1);    /* ix, pulses */
+    lua_gettable(L, -2);         /* puls, pulses */
+    lua_pushstring(L, "on");     /* key, puls, pulses */
+    lua_gettable(L, -2);         /* on, puls, pulses */
+    pulses[i].gpioOn = lua_tonumber(L, -1);
+    lua_pushstring(L, "off");    /* key, on, puls, pulses */
+    lua_gettable(L, -3);         /* off, on, puls, pulses */   
+    pulses[i].gpioOff = lua_tonumber(L, -1);
+    lua_pushstring(L, "delay");  /* key, off, on, puls, pulses */
+    lua_gettable(L, -4);         /* delay, off, on, puls, pulses */
+    pulses[i].usDelay = lua_tonumber(L, -1);
+    lua_settop(L, -5);           /* pulses */
+  }
+  res = gpioWaveAddGeneric(n, pulses);
+  free(pulses);
+  lua_pushnumber(L, res);
+  return 1;
+}
+#if 0
+/*
+ * Lua binding: succ = waveChain(seq)
+ * seq = {WID, ..., WID, CMD, WID, ..., WID, CMD, ...}
+ * WID: handle of waveform create with waveCreate()
+ * CMD: table {cmd, param}
+ * {"start"}
+ * {"repeat", count}
+ * {"delay", microsecs}
+ * {"forever"}
+ * {wid0, wid0, "start", wid0, wid1, "delay 500", "repeat 30", 
+ * 
+ */
+#define CMD_START(b) *b++ = 255; *b++ = 0;
+#define CMD_FOREVER(b) *b++ = 255; *b++ = 3;
+#define CMD_DELAY(b, m) *b++ = 255; *b++ = m / 256 * 256; *b++ = m % 256;
+int utlWaveChain(lua_State *L)
+{
+  int n, i;
+  char *buf = malloc(sizeof(char) * 1024);
+  if (!lua_istable(L, 1)){
+    TERMINATE_PIGPIO();
+    luaL_error(L, "Table expected as arg %d 'pulses', received %s.", 1,
+               lua_typename(L, lua_type(L, 1)));
+  }
+  n = luaL_len(L, 1);
+  for (i = 0; i < n; i++){
+    lua_pushnumber(L, i+1);
+    lua_gettable(L, -2);
+    if (lua_isnumber(L, -1)){
+      /* wave id */
+      *buf++ = (char) lua_tonumber(L, -1);
+      lua_pop(L, 1);
+    } else if (lua_isstring(L, -1)){
+      /* command */
+      cmd = lua_tolstring(L, -1);
+      code = strtok(cmd, " \t");
+      if (!strcmp(code, "start")){
+        CMD_START(buf);
+      } else if (!strcmp(code, "delay")){
+        sp = strtok(NULL, " \t");
+        np = atoi(param);
+        CMD_DELAY(buf, np);
+      } else if (!strcmp(code, "repeat")){
+        sp = strtok(NULL, " \t");
+        np = atoi(param);
+        CMD_REPEAT(buf, np);
+      } else if (!strcmp(code, "forever")){
+        CMD_FOREVER(buf);
+      }
+    }
+  }
+}
+#endif

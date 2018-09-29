@@ -141,4 +141,5 @@ int utlSetSignalFunc(lua_State *L);
 int utlSetGetSamplesFunc(lua_State *L);
 int utlStartThread(lua_State *L);
 int utlStopThread(lua_State *L);
+int utlWaveAddGeneric(lua_State *L);
 #endif

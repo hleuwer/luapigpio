@@ -19,6 +19,7 @@
 %native (gpioSetGetSamplesFunc) int utlSetGetSamplesFunc(lua_State *L);
 %native (gpioStartThread) int utlStartThread(lua_State *L);
 %native (gpioStopThread) int utlStopThread(lua_State *L);
+%native (gpioWaveAddGeneric) int utlWaveAddGeneric(lua_State *L);
 // type mapping
 %typemap(in) uint_32_t {
 }
