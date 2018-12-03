@@ -1,4 +1,4 @@
-local gpio = require "core"
+local gpio = require "pigpio.core"
 
 local strbyte = string.byte
 local band, bor, lshift, rshift = bit32.band, bit32.bor, bit32.lshift, bit32.rshift

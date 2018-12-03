@@ -10,7 +10,7 @@ LUAV=5.2
 INC=-I/usr/include/lua$(LUAV) -I..
 LIBDIR=-L/usr/local/lib 
 IFILE=pigpio.i
-TARGET=core.so
+TARGET=pigpio/core.so
 LUALIBDIR=/usr/local/lib/lua/$(LUAV)
 
 .SUFFIXES: .c .o
@@ -19,7 +19,7 @@ LUALIBDIR=/usr/local/lib/lua/$(LUAV)
 	gcc $(CFLAGS) $(INC) -o $@ $<
 
 $(TARGET): $(OBJS)
-	gcc $(LDFLAGS) $(OBJS) $(LIBDIR) $(LIBS) -o $(TARGET)
+	mkdir -p pigpio && gcc $(LDFLAGS) $(OBJS) $(LIBDIR) $(LIBS) -o $(TARGET)
 
 $(WRAPPER:.c=.o): $(WRAPPER)
 

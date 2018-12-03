@@ -1,4 +1,4 @@
-local gpio = require "lgpio"
+local gpio = require "pigpio"
 local socket = require "socket"
 local sleep = socket.sleep
 

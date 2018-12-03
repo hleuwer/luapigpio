@@ -1,4 +1,4 @@
-%module core
+%module pigpio_core
 %{
 #include <stdio.h>
 #include "pigpio.h"
